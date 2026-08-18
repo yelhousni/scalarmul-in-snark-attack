@@ -127,7 +127,7 @@ func TestBW6761G2(t *testing.T) {
 		ell := int64(3)
 		s := anyScalar(r)
 		vec := scaleDecomp(honestDecomp(s, r, bwLambda), ell)
-		if maxAbsBits(vec) >= subScalarBits(r) {
+		if maxAbsBits(vec) > subScalarBits(r) {
 			t.Fatalf("scaled decomposition overflows the sub-scalar range")
 		}
 		T := bwG2Torsion(ell)
@@ -148,7 +148,7 @@ func TestBW6761G2(t *testing.T) {
 		s := anyScalar(r)
 		T, mu := eigenBWG2(ell)
 		vec := eigenRouteDecomp(s, r, bwLambda, ell, mu)
-		if maxAbsBits(vec) >= subScalarBits(r) {
+		if maxAbsBits(vec) > subScalarBits(r) {
 			t.Fatalf("eigen-route decomposition overflows the sub-scalar range")
 		}
 		var honest, forged bw.G2Affine

@@ -28,13 +28,18 @@ residual `[v1]T + [v2]ψ(T)`; the forgery is accepted iff `(v1,v2)` vanish it.
   automatically, and the identity forces `s = -(ℓλ)⁻¹ mod r`. Reaches every
   cofactor prime `ℓ < 2^(N/4+2)`. Works for any rational `ℓ`-torsion `T`.
 - **any-scalar** — keep the (arbitrary) honest scalar and adapt the
-  decomposition. Two sub-routes: **scaling** (multiply the honest decomposition by
-  `ℓ`, so `v1,v2` both vanish mod `ℓ`) fits the range only for tiny `ℓ` (2, 3);
-  the **eigen route** (`eigen.go`) instead takes a short vector from the index-`ℓ`
-  sublattice `v1+μ·v2 ≡ 0 mod ℓ`, where `μ` is the eigenvalue of the endomorphism
-  `φ` on a rational `ℓ`-torsion eigenvector `T` (so `[v1]T+[v2]φ(T)=[v1+μv2]T=𝒪`).
-  That costs only ~`ℓ^{1/4}` and reaches every `ℓ ≡ 1 mod 3` up to `ρ⁴≈100`
-  (here `ℓ=13`, found by a small LLL).
+  decomposition (`eigen.go`). Three sub-routes, by cost:
+  - **scaling** — multiply the honest decomposition by `ℓ` (`v1,v2` both vanish
+    mod `ℓ`); penalty `ℓ`, so only tiny `ℓ` (2, 3).
+  - **eigen route** — a short vector of the index-`ℓ` sublattice `v1+μ·v2 ≡ 0 mod ℓ`,
+    where `μ` is the eigenvalue of `φ` on a rational `ℓ`-torsion eigenvector `T`
+    (so `[v1]T+[v2]φ(T)=[v1+μv2]T=𝒪`); penalty ~`ℓ^{1/4}`, reaches `ℓ≡1 mod 3` into
+    the hundreds (here 13, 127).
+  - **both-zero route** — a short vector of the index-`ℓ²` sublattice
+    `v1=v2=0 mod ℓ`, valid for *any* `ℓ`-torsion (no eigenvalue needed); penalty
+    ~`ℓ^{1/2}` (here 11, 23).
+
+  The eigen and both-zero routes reduce with the LLL vendored from gnark-crypto.
 
 The exploit replaces two solver hints via `solver.OverrideHint` — the fraction
 decomposition (`rationalReconstructExt` / `…G2`) and the hinted output
@@ -42,23 +47,22 @@ decomposition (`rationalReconstructExt` / `…G2`) and the hinted output
 
 ## Impacted groups and what is demonstrated
 
-| Group | field | cofactor small part | chosen-scalar `ℓ` | any-scalar `ℓ` |
+| Group | field | cofactor small part | chosen-scalar `ℓ` | any-scalar `ℓ` (route) |
 |-------|-------|---------------------|-------------------|----------------|
-| BLS12-381 𝔾₁ | 𝔽ₚ  | `3·11²·10177²`        | `3, 11, 10177`      | `3` |
-| BW6-761 𝔾₁   | 𝔽ₚ  | `2²·127`             | `2, 127`            | `2` |
+| BLS12-381 𝔾₁ | 𝔽ₚ  | `3·11²·10177²`        | `3, 11, 10177`      | `3` (scaling), `11` (both-zero) |
+| BW6-761 𝔾₁   | 𝔽ₚ  | `2²·127`             | `2, 127`            | `2` (both-zero), `127` (eigen) |
 | BW6-761 𝔾₂   | 𝔽ₚ  | `3·13`               | `3, 13`             | `3` (scaling), `13` (eigen) |
-| BLS12-381 𝔾₂ | 𝔽ₚ² | `13²·23²·2713·11953` | `13, 23, 2713, 11953` | `13` (eigen)¹ |
-| BN254 𝔾₂     | 𝔽ₚ² | `10069`              | `10069`             | —²  |
+| BLS12-381 𝔾₂ | 𝔽ₚ² | `13²·23²·2713·11953` | `13, 23, 2713, 11953` | `13` (eigen), `23` (both-zero) |
+| BN254 𝔾₂     | 𝔽ₚ² | `10069`              | `10069`             | —¹  |
 
 Every listed case is a runnable test that shows the unpatched gadget **accepting**
-`[s]P + T` as `[s]P`. Notes:
+`[s]P + T` as `[s]P`. A prime is any-scalar reachable when *some* route (eigen for
+`ℓ≡1 mod 3`, both-zero otherwise) yields a decomposition within the range; each
+entry was confirmed to fit by LLL (e.g. `127` on BW6-761 𝔾₁ lands at 95 bits,
+`23` on BLS12-381 𝔾₂ right at the 66-bit bound). The larger primes 10177 (𝔾₁) and
+2713, 11953 (𝔾₂) overflow by either route, so they are chosen-scalar only. Notes:
 
-- ¹ BLS12-381 𝔾₂ any-scalar reaches `ℓ=13` only, via the eigen route (13 ≡ 1 mod 3,
-  so `φ` has a rational eigenvalue). `ℓ=23` is **not** any-scalar reachable:
-  23 ≡ 2 mod 3 gives no rational eigenvalue, and the both-zero route needs `ℓ≲10`.
-  The larger eigen-reachable primes 2713, 11953 exceed `ρ⁴≈100`. So 23, 2713, 11953
-  are chosen-scalar only.
-- ² BN254 𝔾₂ any-scalar is not reachable at all: `10069 ≫ ρ⁴ ≈ 100`.
+- ¹ BN254 𝔾₂ any-scalar is not reachable at all: `10069 ≫` the eigen bound.
 - **BN254 𝔾₁ is prime-order (cofactor 1) and therefore immune** — there is no
   cofactor torsion to shift by, so it has no test.
 

@@ -1,8 +1,9 @@
 package attack
 
 // BW6-761 G1 (cofactor small part 2^2 * 127). Prime-field group handled by
-// sw_emulated. Exhibits chosen-scalar (ell in {2,127}) and any-scalar (ell=2,
-// both-zero route) forgeries against the public ScalarMul gadget.
+// sw_emulated. Exhibits chosen-scalar (ell in {2,127}) and any-scalar (ell=2 via
+// the both-zero route, ell=127 via the eigen route) forgeries against the public
+// ScalarMul gadget.
 
 import (
 	"math/big"
@@ -111,7 +112,7 @@ func TestBW6761G1(t *testing.T) {
 		ell := int64(2)
 		s := anyScalar(r)
 		vec := scaleDecomp(honestDecomp(s, r, bwLambda), ell)
-		if maxAbsBits(vec) >= subScalarBits(r) {
+		if maxAbsBits(vec) > subScalarBits(r) {
 			t.Fatalf("scaled decomposition overflows the sub-scalar range")
 		}
 		T := bwG1Torsion(ell)
@@ -121,7 +122,27 @@ func TestBW6761G1(t *testing.T) {
 		if err := solveBWG1(t, false, P, s, forged, &vec); err != nil {
 			t.Fatalf("any-scalar ell=%d must be ACCEPTED (unpatched): %v", ell, err)
 		}
-		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P", ell)
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P (both-zero route)", ell)
+	}
+
+	// any-scalar via the eigen route (ell=127): 127 ≡ 1 mod 3 and the 127-torsion
+	// is 1-dimensional, so the index-127 sublattice v1+mu*v2 = 0 fits the 97-bit
+	// range (the round rho^4 ~ 100 cutoff is too conservative for BW6-761).
+	{
+		ell := int64(127)
+		s := anyScalar(r)
+		T, mu := eigenBWG1(ell)
+		vec := eigenRouteDecomp(s, r, bwLambda, ell, mu)
+		if maxAbsBits(vec) > subScalarBits(r) {
+			t.Fatalf("eigen-route decomposition overflows the sub-scalar range")
+		}
+		var honest, forged bw.G1Affine
+		honest.ScalarMultiplication(&P, s)
+		forged.Add(&honest, &T)
+		if err := solveBWG1(t, false, P, s, forged, &vec); err != nil {
+			t.Fatalf("any-scalar (eigen) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
+		}
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P (eigen route, mu=%d)", ell, mu)
 	}
 }
 

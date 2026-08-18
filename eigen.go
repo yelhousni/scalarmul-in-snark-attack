@@ -34,7 +34,8 @@ import (
 
 var (
 	blsOmegaG2 blsfp.Element // thirdRootOneG2 = thirdRootOneG1^2 (BLS12-381)
-	bwOmegaG2  bwfp.Element  // thirdRootOneG2 = thirdRootOneG1^2 (BW6-761)
+	bwOmegaG1  bwfp.Element  // thirdRootOneG1 (BW6-761 G1 endomorphism)
+	bwOmegaG2  bwfp.Element  // thirdRootOneG2 = thirdRootOneG1^2 (BW6-761 G2)
 )
 
 func init() {
@@ -43,6 +44,7 @@ func init() {
 	blsOmegaG2.Square(&t1)
 	var t2 bwfp.Element
 	t2.SetString("1968985824090209297278610739700577151397666382303825728450741611566800370218827257750865013421937292370006175842381275743914023380727582819905021229583192207421122272650305267822868639090213645505120388400344940985710520836292650")
+	bwOmegaG1.Set(&t2)
 	bwOmegaG2.Square(&t2)
 }
 
@@ -58,6 +60,29 @@ func psiBWG2(T bw.G2Affine) bw.G2Affine {
 	res.X.Mul(&T.X, &bwOmegaG2)
 	res.Y = T.Y
 	return res
+}
+
+func psiBWG1(T bw.G1Affine) bw.G1Affine {
+	var res bw.G1Affine
+	res.X.Mul(&T.X, &bwOmegaG1)
+	res.Y = T.Y
+	return res
+}
+
+// eigenBWG1 returns a rational ell-torsion phi-eigenvector on BW6-761 G1 and its
+// eigenvalue. The reachable prime ell=127 divides the cofactor to the first power
+// (1-dimensional torsion), so any ell-torsion point is an eigenvector.
+func eigenBWG1(ell int64) (bw.G1Affine, int64) {
+	T := bwG1Torsion(ell)
+	pT := psiBWG1(T)
+	for _, mu := range cubeRootsModEll(ell) {
+		var m bw.G1Affine
+		m.ScalarMultiplication(&T, big.NewInt(mu))
+		if m.Equal(&pT) {
+			return T, mu
+		}
+	}
+	panic("eigenBWG1: no matching eigenvalue")
 }
 
 // ---- rational ell-torsion eigenvector and its eigenvalue mu ----
@@ -125,37 +150,41 @@ func cubeRootsModEll(ell int64) []int64 {
 	return roots
 }
 
-// ---- eigen-route decomposition via LLL ----
+// ---- short-decomposition search via LLL ----
+//
+// A cofactor prime ell is any-scalar reachable if EITHER sublattice of the
+// identity lattice L_r = {(u1,u2,v1,v2): u1+lambda*u2+s*(v1+lambda*v2) = 0 mod r}
+// has an in-range short vector:
+//   - eigen route (index ell): v1 + mu*v2 = 0 mod ell, needs a phi-eigenvector
+//     (mu a cube root of unity mod ell, i.e. ell = 3 or ell = 1 mod 3);
+//   - both-zero route (index ell^2): v1 = v2 = 0 mod ell, works for any
+//     ell-torsion but the vector is longer (~ell^{1/2} vs ell^{1/4}).
+// The min-norm vector is picked over small combinations of the LLL-reduced basis.
 
-// eigenRouteDecomp returns a short signed decomposition (u1,u2,v1,v2) with
-//
-//	u1 + lambda*u2 + s*v1 + s*lambda*v2 = 0 (mod r)   [gadget identity]
-//	v1 + mu*v2 = 0 (mod ell)                          [eigen residual vanishes]
-//
-// (v1,v2) not both zero and v1 + lambda*v2 != 0 (mod r) [non-triviality]. It
-// picks the vector of least infinity-norm among small combinations of an
-// LLL-reduced basis of the sublattice.
-func eigenRouteDecomp(s, r, lambda *big.Int, ell, mu int64) [4]*big.Int {
-	L := big.NewInt(ell)
-	M := big.NewInt(mu)
-	// L_r basis (identity mod r), u1-entries centered mod r to keep them small.
-	b1 := []*big.Int{new(big.Int).Set(r), big.NewInt(0), big.NewInt(0), big.NewInt(0)}
-	b2 := []*big.Int{centeredMod(new(big.Int).Neg(lambda), r), big.NewInt(1), big.NewInt(0), big.NewInt(0)}
-	b3 := []*big.Int{centeredMod(new(big.Int).Neg(s), r), big.NewInt(0), big.NewInt(1), big.NewInt(0)}
+// latticeRows returns the L_r basis, u1-entries centered mod r to stay small.
+func latticeRows(s, r, lambda *big.Int) (b1, b2, b3, b4 []*big.Int) {
+	b1 = []*big.Int{new(big.Int).Set(r), big.NewInt(0), big.NewInt(0), big.NewInt(0)}
+	b2 = []*big.Int{centeredMod(new(big.Int).Neg(lambda), r), big.NewInt(1), big.NewInt(0), big.NewInt(0)}
+	b3 = []*big.Int{centeredMod(new(big.Int).Neg(s), r), big.NewInt(0), big.NewInt(1), big.NewInt(0)}
 	sl := new(big.Int).Mul(s, lambda)
-	b4 := []*big.Int{centeredMod(new(big.Int).Neg(sl), r), big.NewInt(0), big.NewInt(0), big.NewInt(1)}
-	// eigen-sublattice generators: b1, b2, ell*b3, b4 - mu*b3
-	g3 := scaleVec(b3, L)
-	g4 := subVec(b4, scaleVec(b3, M))
-	mat := toValueRows([][]*big.Int{b1, b2, g3, g4})
-	lllReduce(mat, len(mat)) // vendored gnark-crypto LLL
-	reduced := toPtrRows(mat)
+	b4 = []*big.Int{centeredMod(new(big.Int).Neg(sl), r), big.NewInt(0), big.NewInt(0), big.NewInt(1)}
+	return
+}
 
-	nbits := subScalarBits(r)
-	bound := new(big.Int).Lsh(big.NewInt(1), uint(nbits))
+func reduceBasis(rows [][]*big.Int) [][]*big.Int {
+	mat := toValueRows(rows)
+	lllReduce(mat, len(mat)) // vendored gnark-crypto LLL
+	return toPtrRows(mat)
+}
+
+// pickShortest returns the least infinity-norm signed vector (u1,u2,v1,v2) among
+// small combinations of the reduced basis that lies in range (< 2^nbits), has a
+// non-zero v-part, satisfies the gadget identity and the non-triviality check
+// v1+lambda*v2 != 0 mod r, and passes the route-specific congruence vok(v1,v2).
+func pickShortest(reduced [][]*big.Int, s, r, lambda *big.Int, vok func(v1, v2 *big.Int) bool) [4]*big.Int {
+	bound := new(big.Int).Lsh(big.NewInt(1), uint(subScalarBits(r)))
 	var best [4]*big.Int
 	bestMax := new(big.Int) // 0 means "unset"
-	// scan small integer combinations of the reduced basis
 	rng := []int64{-2, -1, 0, 1, 2}
 	for _, c0 := range rng {
 		for _, c1 := range rng {
@@ -165,7 +194,21 @@ func eigenRouteDecomp(s, r, lambda *big.Int, ell, mu int64) [4]*big.Int {
 						continue
 					}
 					v := combine(reduced, []int64{c0, c1, c2, c3})
-					if !validEigenVec(v, s, r, lambda, ell, mu) {
+					if v[2].Sign() == 0 && v[3].Sign() == 0 {
+						continue
+					}
+					if !vok(v[2], v[3]) {
+						continue
+					}
+					acc := new(big.Int).Set(v[0])
+					acc.Add(acc, new(big.Int).Mul(lambda, v[1]))
+					acc.Add(acc, new(big.Int).Mul(s, v[2]))
+					acc.Add(acc, new(big.Int).Mul(new(big.Int).Mul(s, lambda), v[3]))
+					if acc.Mod(acc, r).Sign() != 0 {
+						continue
+					}
+					nt := new(big.Int).Add(v[2], new(big.Int).Mul(lambda, v[3]))
+					if nt.Mod(nt, r).Sign() == 0 {
 						continue
 					}
 					m := maxAbsVec(v)
@@ -181,34 +224,31 @@ func eigenRouteDecomp(s, r, lambda *big.Int, ell, mu int64) [4]*big.Int {
 		}
 	}
 	if bestMax.Sign() == 0 {
-		panic("eigenRouteDecomp: no in-range decomposition found")
+		panic("pickShortest: no in-range decomposition found")
 	}
 	return best
 }
 
-// validEigenVec checks the identity, the eigen congruence and the non-triviality
-// conditions the gadget enforces.
-func validEigenVec(v []*big.Int, s, r, lambda *big.Int, ell, mu int64) bool {
-	u1, u2, v1, v2 := v[0], v[1], v[2], v[3]
-	if v1.Sign() == 0 && v2.Sign() == 0 {
-		return false
-	}
-	// identity: u1 + lambda*u2 + s*v1 + s*lambda*v2 = 0 mod r
-	acc := new(big.Int).Set(u1)
-	acc.Add(acc, new(big.Int).Mul(lambda, u2))
-	acc.Add(acc, new(big.Int).Mul(s, v1))
-	acc.Add(acc, new(big.Int).Mul(new(big.Int).Mul(s, lambda), v2))
-	if acc.Mod(acc, r).Sign() != 0 {
-		return false
-	}
-	// eigen: v1 + mu*v2 = 0 mod ell
-	e := new(big.Int).Add(v1, new(big.Int).Mul(big.NewInt(mu), v2))
-	if e.Mod(e, big.NewInt(ell)).Sign() != 0 {
-		return false
-	}
-	// non-triviality: v1 + lambda*v2 != 0 mod r
-	nt := new(big.Int).Add(v1, new(big.Int).Mul(lambda, v2))
-	return nt.Mod(nt, r).Sign() != 0
+// eigenRouteDecomp finds a short decomposition in the index-ell sublattice
+// v1 + mu*v2 = 0 mod ell (residual [v1]T+[v2]phi(T) = [v1+mu*v2]T vanishes).
+func eigenRouteDecomp(s, r, lambda *big.Int, ell, mu int64) [4]*big.Int {
+	b1, b2, b3, b4 := latticeRows(s, r, lambda)
+	reduced := reduceBasis([][]*big.Int{b1, b2, scaleVec(b3, big.NewInt(ell)), subVec(b4, scaleVec(b3, big.NewInt(mu)))})
+	return pickShortest(reduced, s, r, lambda, func(v1, v2 *big.Int) bool {
+		e := new(big.Int).Add(v1, new(big.Int).Mul(big.NewInt(mu), v2))
+		return e.Mod(e, big.NewInt(ell)).Sign() == 0
+	})
+}
+
+// bothZeroDecomp finds a short decomposition in the index-ell^2 sublattice
+// v1 = v2 = 0 mod ell (residual vanishes for any ell-torsion T, no eigenvector).
+func bothZeroDecomp(s, r, lambda *big.Int, ell int64) [4]*big.Int {
+	b1, b2, b3, b4 := latticeRows(s, r, lambda)
+	L := big.NewInt(ell)
+	reduced := reduceBasis([][]*big.Int{b1, b2, scaleVec(b3, L), scaleVec(b4, L)})
+	return pickShortest(reduced, s, r, lambda, func(v1, v2 *big.Int) bool {
+		return new(big.Int).Mod(v1, L).Sign() == 0 && new(big.Int).Mod(v2, L).Sign() == 0
+	})
 }
 
 // ---- integer-vector helpers and the (vendored) LLL reducer ----

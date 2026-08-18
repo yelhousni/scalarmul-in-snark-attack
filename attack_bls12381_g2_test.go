@@ -6,11 +6,11 @@ package attack
 // so the same two hint overrides forge a torsion-shifted output.
 //
 // chosen-scalar reaches every cofactor prime below 2^(N/4+2): 13, 23, 2713,
-// 11953. any-scalar is reachable only for ell=13 (13 = 1 mod 3, so the cube-root
-// endomorphism has a rational eigenvalue) and is exhibited here via the eigen-
-// route sublattice reduction v1+mu*v2 = 0 mod ell (see eigen.go). ell=23 is NOT
-// any-scalar reachable: 23 = 2 mod 3, so phi has no rational eigenvalue and the
-// residual forces the both-zero route, whose reach (~10) is below 23.
+// 11953. any-scalar reaches ell=13 via the eigen route (13 = 1 mod 3, so phi has
+// a rational eigenvalue) and ell=23 via the both-zero route (23 = 2 mod 3, no
+// eigenvalue, so v1 = v2 = 0 mod 23; it lands right at the 66-bit range bound).
+// The larger primes 2713, 11953 overflow the range by either route, so they are
+// chosen-scalar only. See eigen.go.
 
 import (
 	"math/big"
@@ -130,7 +130,7 @@ func TestBLS12381G2(t *testing.T) {
 		s := anyScalar(r)
 		T, mu := eigenBLSG2(ell)
 		vec := eigenRouteDecomp(s, r, blsLambda, ell, mu)
-		if maxAbsBits(vec) >= subScalarBits(r) {
+		if maxAbsBits(vec) > subScalarBits(r) {
 			t.Fatalf("eigen-route decomposition overflows the sub-scalar range")
 		}
 		var honest, forged bls.G2Affine
@@ -140,6 +140,26 @@ func TestBLS12381G2(t *testing.T) {
 			t.Fatalf("any-scalar (eigen) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
 		}
 		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q (eigen route, mu=%d)", ell, mu)
+	}
+
+	// any-scalar via the both-zero route (ell=23): 23 !≡ 1 mod 3 has no phi-eigen-
+	// value, but the index-23^2 sublattice v1 = v2 = 0 mod 23 lands at exactly the
+	// 66-bit range bound (|v| < 2^66 still passes the check).
+	{
+		ell := int64(23)
+		s := anyScalar(r)
+		vec := bothZeroDecomp(s, r, blsLambda, ell)
+		if maxAbsBits(vec) > subScalarBits(r) {
+			t.Fatalf("both-zero decomposition overflows the sub-scalar range")
+		}
+		T := blsG2Torsion(ell)
+		var honest, forged bls.G2Affine
+		honest.ScalarMultiplication(&Q, s)
+		forged.Add(&honest, &T)
+		if err := solveBLSG2(t, false, Q, s, forged, &vec); err != nil {
+			t.Fatalf("any-scalar (both-zero) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
+		}
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q (both-zero route)", ell)
 	}
 }
 

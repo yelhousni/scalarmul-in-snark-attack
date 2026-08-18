@@ -100,7 +100,7 @@ func TestBLS12381G1(t *testing.T) {
 		ell := int64(3)
 		s := anyScalar(r)
 		vec := scaleDecomp(honestDecomp(s, r, blsLambda), ell)
-		if maxAbsBits(vec) >= subScalarBits(r) {
+		if maxAbsBits(vec) > subScalarBits(r) {
 			t.Fatalf("scaled decomposition overflows the sub-scalar range")
 		}
 		T := blsG1Torsion(ell)
@@ -110,7 +110,26 @@ func TestBLS12381G1(t *testing.T) {
 		if err := solveBLSG1(t, false, P, s, forged, &vec); err != nil {
 			t.Fatalf("any-scalar ell=%d must be ACCEPTED (unpatched): %v", ell, err)
 		}
-		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P", ell)
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P (scaling)", ell)
+	}
+
+	// any-scalar via the both-zero route (ell=11): 11 !≡ 1 mod 3 has no phi-eigen-
+	// value, but the index-11^2 sublattice v1 = v2 = 0 mod 11 still fits the range.
+	{
+		ell := int64(11)
+		s := anyScalar(r)
+		vec := bothZeroDecomp(s, r, blsLambda, ell)
+		if maxAbsBits(vec) > subScalarBits(r) {
+			t.Fatalf("both-zero decomposition overflows the sub-scalar range")
+		}
+		T := blsG1Torsion(ell)
+		var honest, forged bls.G1Affine
+		honest.ScalarMultiplication(&P, s)
+		forged.Add(&honest, &T)
+		if err := solveBLSG1(t, false, P, s, forged, &vec); err != nil {
+			t.Fatalf("any-scalar (both-zero) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
+		}
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]P+T as [s]P (both-zero route)", ell)
 	}
 }
 
