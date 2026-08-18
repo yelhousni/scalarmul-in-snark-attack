@@ -28,18 +28,22 @@ residual `[v1]T + [v2]ψ(T)`; the forgery is accepted iff `(v1,v2)` vanish it.
   automatically, and the identity forces `s = -(ℓλ)⁻¹ mod r`. Reaches every
   cofactor prime `ℓ < 2^(N/4+2)`. Works for any rational `ℓ`-torsion `T`.
 - **any-scalar** — keep the (arbitrary) honest scalar and adapt the
-  decomposition (`eigen.go`). Three sub-routes, by cost:
-  - **scaling** — multiply the honest decomposition by `ℓ` (`v1,v2` both vanish
-    mod `ℓ`); penalty `ℓ`, so only tiny `ℓ` (2, 3).
+  decomposition (`eigen.go`). The residual `[v1]T+[v2]φ(T)` is vanished by one of
+  **two routes**:
   - **eigen route** — a short vector of the index-`ℓ` sublattice `v1+μ·v2 ≡ 0 mod ℓ`,
     where `μ` is the eigenvalue of `φ` on a rational `ℓ`-torsion eigenvector `T`
-    (so `[v1]T+[v2]φ(T)=[v1+μv2]T=𝒪`); penalty ~`ℓ^{1/4}`, reaches `ℓ≡1 mod 3` into
-    the hundreds (here 13, 127).
+    (so `[v1]T+[v2]φ(T)=[v1+μv2]T=𝒪`). Penalty ~`ℓ^{1/4}`; needs `ℓ≡1 mod 3`;
+    reaches into the hundreds (here 13, 127).
   - **both-zero route** — a short vector of the index-`ℓ²` sublattice
-    `v1=v2=0 mod ℓ`, valid for *any* `ℓ`-torsion (no eigenvalue needed); penalty
-    ~`ℓ^{1/2}` (here 11, 23).
+    `v1=v2=0 mod ℓ`, valid for *any* `ℓ`-torsion (no eigenvalue). Penalty ~`ℓ^{1/2}`
+    (here 11, 23).
 
-  The eigen and both-zero routes reduce with the LLL vendored from gnark-crypto.
+  **Scaling** (multiply the honest decomposition by `ℓ`) is just the crude way to
+  land in the *both-zero* sublattice — penalty `ℓ` instead of `ℓ^{1/2}`, so it
+  fits only tiny `ℓ` (2, 3). And since `v1=v2=0 mod ℓ` implies `v1+μv2=0`, the
+  both-zero sublattice sits inside the eigen one when `μ` exists (at `ℓ=3` a scaled
+  vector is both). The two LLL routes reduce with the reducer vendored from
+  gnark-crypto.
 
 The exploit replaces two solver hints via `solver.OverrideHint` — the fraction
 decomposition (`rationalReconstructExt` / `…G2`) and the hinted output
