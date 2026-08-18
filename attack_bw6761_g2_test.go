@@ -137,7 +137,27 @@ func TestBW6761G2(t *testing.T) {
 		if err := solveBWG2(t, false, Q, s, forged, &vec); err != nil {
 			t.Fatalf("any-scalar ell=%d must be ACCEPTED (unpatched): %v", ell, err)
 		}
-		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q", ell)
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q (scaling)", ell)
+	}
+
+	// any-scalar via the eigen route (ell=13): the 13-torsion is 1-dimensional so
+	// any 13-torsion point is a phi-eigenvector; the decomposition comes from the
+	// index-13 sublattice v1+mu*v2 = 0.
+	{
+		ell := int64(13)
+		s := anyScalar(r)
+		T, mu := eigenBWG2(ell)
+		vec := eigenRouteDecomp(s, r, bwLambda, ell, mu)
+		if maxAbsBits(vec) >= subScalarBits(r) {
+			t.Fatalf("eigen-route decomposition overflows the sub-scalar range")
+		}
+		var honest, forged bw.G2Affine
+		honest.ScalarMultiplication(&Q, s)
+		forged.Add(&honest, &T)
+		if err := solveBWG2(t, false, Q, s, forged, &vec); err != nil {
+			t.Fatalf("any-scalar (eigen) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
+		}
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q (eigen route, mu=%d)", ell, mu)
 	}
 }
 
@@ -163,5 +183,18 @@ func TestBW6761G2Fix(t *testing.T) {
 			t.Fatalf("fix must REJECT the forged [s]Q+T (ell=%d)", ell)
 		}
 		t.Logf("FIX subgroup binding rejects chosen-scalar forgery ell=%-6d", ell)
+	}
+
+	// the eigen-route any-scalar forgery is rejected too
+	{
+		ell := int64(13)
+		T, mu := eigenBWG2(ell)
+		vec := eigenRouteDecomp(s, r, bwLambda, ell, mu)
+		var forged bw.G2Affine
+		forged.Add(&honest, &T)
+		if err := solveBWG2(t, true, Q, s, forged, &vec); err == nil {
+			t.Fatal("fix must REJECT the eigen-route forgery (ell=13)")
+		}
+		t.Log("FIX subgroup binding rejects eigen-route forgery ell=13")
 	}
 }

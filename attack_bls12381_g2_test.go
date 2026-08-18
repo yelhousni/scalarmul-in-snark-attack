@@ -6,10 +6,11 @@ package attack
 // so the same two hint overrides forge a torsion-shifted output.
 //
 // chosen-scalar reaches every cofactor prime below 2^(N/4+2): 13, 23, 2713,
-// 11953. any-scalar is reachable here only for ell in {13,23} and only via the
-// eigen-route sublattice reduction (v1+mu*v2 = 0 mod ell); the simple ell-scaling
-// used for the small-ell groups overflows the sub-scalar range (13*r^{1/4} needs
-// 68 bits > the 66-bit bound), so it is not exhibited in this minimal artifact.
+// 11953. any-scalar is reachable only for ell=13 (13 = 1 mod 3, so the cube-root
+// endomorphism has a rational eigenvalue) and is exhibited here via the eigen-
+// route sublattice reduction v1+mu*v2 = 0 mod ell (see eigen.go). ell=23 is NOT
+// any-scalar reachable: 23 = 2 mod 3, so phi has no rational eigenvalue and the
+// residual forces the both-zero route, whose reach (~10) is below 23.
 
 import (
 	"math/big"
@@ -121,8 +122,25 @@ func TestBLS12381G2(t *testing.T) {
 		}
 		t.Logf("ATTACK chosen-scalar ell=%-6d accepted [s]Q+T as [s]Q", ell)
 	}
-	t.Log("any-scalar: reachable for ell in {13,23} via the eigen-route reduction; " +
-		"the simple ell-scaling overflows the 66-bit sub-scalar range, so not shown here")
+
+	// any-scalar via the eigen route (ell=13): honest scalar, decomposition from
+	// the index-13 sublattice v1+mu*v2 = 0, torsion-shifted by a phi-eigenvector.
+	{
+		ell := int64(13)
+		s := anyScalar(r)
+		T, mu := eigenBLSG2(ell)
+		vec := eigenRouteDecomp(s, r, blsLambda, ell, mu)
+		if maxAbsBits(vec) >= subScalarBits(r) {
+			t.Fatalf("eigen-route decomposition overflows the sub-scalar range")
+		}
+		var honest, forged bls.G2Affine
+		honest.ScalarMultiplication(&Q, s)
+		forged.Add(&honest, &T)
+		if err := solveBLSG2(t, false, Q, s, forged, &vec); err != nil {
+			t.Fatalf("any-scalar (eigen) ell=%d must be ACCEPTED (unpatched): %v", ell, err)
+		}
+		t.Logf("ATTACK any-scalar   ell=%-6d accepted [s]Q+T as [s]Q (eigen route, mu=%d)", ell, mu)
+	}
 }
 
 func TestBLS12381G2Fix(t *testing.T) {
@@ -147,5 +165,18 @@ func TestBLS12381G2Fix(t *testing.T) {
 			t.Fatalf("fix must REJECT the forged [s]Q+T (ell=%d)", ell)
 		}
 		t.Logf("FIX subgroup binding rejects chosen-scalar forgery ell=%-6d", ell)
+	}
+
+	// the eigen-route any-scalar forgery is rejected too
+	{
+		ell := int64(13)
+		T, mu := eigenBLSG2(ell)
+		vec := eigenRouteDecomp(s, r, blsLambda, ell, mu)
+		var forged bls.G2Affine
+		forged.Add(&honest, &T)
+		if err := solveBLSG2(t, true, Q, s, forged, &vec); err == nil {
+			t.Fatal("fix must REJECT the eigen-route forgery (ell=13)")
+		}
+		t.Log("FIX subgroup binding rejects eigen-route forgery ell=13")
 	}
 }

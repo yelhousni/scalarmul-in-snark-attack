@@ -27,10 +27,14 @@ residual `[v1]T + [v2]ψ(T)`; the forgery is accepted iff `(v1,v2)` vanish it.
 - **chosen-scalar** — fix `(u1,u2,v1,v2) = (1,0,0,ℓ)`, so the residual `[ℓ]ψ(T)=𝒪`
   automatically, and the identity forces `s = -(ℓλ)⁻¹ mod r`. Reaches every
   cofactor prime `ℓ < 2^(N/4+2)`. Works for any rational `ℓ`-torsion `T`.
-- **any-scalar** — keep the (arbitrary) honest scalar and scale the honest
-  decomposition by `ℓ`, so `v1,v2` both vanish mod `ℓ`. Fits the sub-scalar range
-  only for small `ℓ` (2, 3); larger `ℓ` needs the eigen-route sublattice
-  reduction (not implemented here).
+- **any-scalar** — keep the (arbitrary) honest scalar and adapt the
+  decomposition. Two sub-routes: **scaling** (multiply the honest decomposition by
+  `ℓ`, so `v1,v2` both vanish mod `ℓ`) fits the range only for tiny `ℓ` (2, 3);
+  the **eigen route** (`eigen.go`) instead takes a short vector from the index-`ℓ`
+  sublattice `v1+μ·v2 ≡ 0 mod ℓ`, where `μ` is the eigenvalue of the endomorphism
+  `φ` on a rational `ℓ`-torsion eigenvector `T` (so `[v1]T+[v2]φ(T)=[v1+μv2]T=𝒪`).
+  That costs only ~`ℓ^{1/4}` and reaches every `ℓ ≡ 1 mod 3` up to `ρ⁴≈100`
+  (here `ℓ=13`, found by a small LLL).
 
 The exploit replaces two solver hints via `solver.OverrideHint` — the fraction
 decomposition (`rationalReconstructExt` / `…G2`) and the hinted output
@@ -42,17 +46,18 @@ decomposition (`rationalReconstructExt` / `…G2`) and the hinted output
 |-------|-------|---------------------|-------------------|----------------|
 | BLS12-381 𝔾₁ | 𝔽ₚ  | `3·11²·10177²`        | `3, 11, 10177`      | `3` |
 | BW6-761 𝔾₁   | 𝔽ₚ  | `2²·127`             | `2, 127`            | `2` |
-| BW6-761 𝔾₂   | 𝔽ₚ  | `3·13`               | `3, 13`             | `3` |
-| BLS12-381 𝔾₂ | 𝔽ₚ² | `13²·23²·2713·11953` | `13, 23, 2713, 11953` | `13, 23`¹ |
+| BW6-761 𝔾₂   | 𝔽ₚ  | `3·13`               | `3, 13`             | `3` (scaling), `13` (eigen) |
+| BLS12-381 𝔾₂ | 𝔽ₚ² | `13²·23²·2713·11953` | `13, 23, 2713, 11953` | `13` (eigen)¹ |
 | BN254 𝔾₂     | 𝔽ₚ² | `10069`              | `10069`             | —²  |
 
 Every listed case is a runnable test that shows the unpatched gadget **accepting**
 `[s]P + T` as `[s]P`. Notes:
 
-- ¹ BLS12-381 𝔾₂ any-scalar is reachable for `ℓ ∈ {13,23}` but only via the
-  eigen-route reduction (`v1+μ·v2 ≡ 0 mod ℓ`); the simple `ℓ`-scaling used for the
-  small-`ℓ` groups overflows the 66-bit sub-scalar range (`13·r^{1/4}` needs 68
-  bits), so it is not exhibited in this minimal artifact.
+- ¹ BLS12-381 𝔾₂ any-scalar reaches `ℓ=13` only, via the eigen route (13 ≡ 1 mod 3,
+  so `φ` has a rational eigenvalue). `ℓ=23` is **not** any-scalar reachable:
+  23 ≡ 2 mod 3 gives no rational eigenvalue, and the both-zero route needs `ℓ≲10`.
+  The larger eigen-reachable primes 2713, 11953 exceed `ρ⁴≈100`. So 23, 2713, 11953
+  are chosen-scalar only.
 - ² BN254 𝔾₂ any-scalar is not reachable at all: `10069 ≫ ρ⁴ ≈ 100`.
 - **BN254 𝔾₁ is prime-order (cofactor 1) and therefore immune** — there is no
   cofactor torsion to shift by, so it has no test.
@@ -101,6 +106,12 @@ go test ./... -v
 - `fix.go` — the subgroup-binding fix: cofactor-clearing constant, sound
   constant multiplication, and the 𝔾₁ `assertInSubgroup` (the 𝔾₂ variants live in
   each group's file).
+- `eigen.go` — the eigen-route any-scalar construction: the endomorphism `φ`
+  off-circuit, rational `ℓ`-torsion eigenvector + eigenvalue `μ`, and the
+  short-sublattice decomposition. The LLL reducer is vendored verbatim from
+  gnark-crypto (`algebra/lattice`) — the exact routine the gadget's own
+  decomposition uses — since the package exports only the `RationalReconstruct*`
+  wrappers, which can't express the extra congruence `v1+μ·v2 ≡ 0 mod ℓ`.
 - `torsion.go` — full-group orders and rational `ℓ`-torsion point generation for
   every group (plain double-and-add, since gnark-crypto's `ScalarMultiplication`
   reduces mod `r`).
