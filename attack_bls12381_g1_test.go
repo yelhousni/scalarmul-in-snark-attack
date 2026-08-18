@@ -126,55 +126,42 @@ func TestBLS12381G1Fix(t *testing.T) {
 		t.Fatalf("fix must keep the honest scalar mul valid: %v", err)
 	}
 
-	// the ell=3 forgery is rejected by the subgroup binding
-	ell := int64(3)
-	sc := chosenScalar(blsLambda, ell, r)
-	T := blsG1Torsion(ell)
-	var h, forged bls.G1Affine
-	h.ScalarMultiplication(&P, sc)
-	forged.Add(&h, &T)
-	vec := chosenVec(ell)
-	if err := solveBLSG1(t, true, P, sc, forged, &vec); err == nil {
-		t.Fatal("fix must REJECT the forged [s]P+T")
+	// every chosen-scalar forgery is rejected by the subgroup binding
+	for _, ell := range []int64{3, 11, 10177} {
+		sc := chosenScalar(blsLambda, ell, r)
+		T := blsG1Torsion(ell)
+		var h, forged bls.G1Affine
+		h.ScalarMultiplication(&P, sc)
+		forged.Add(&h, &T)
+		vec := chosenVec(ell)
+		if err := solveBLSG1(t, true, P, sc, forged, &vec); err == nil {
+			t.Fatalf("fix must REJECT the forged [s]P+T (ell=%d)", ell)
+		}
+		t.Logf("FIX subgroup binding rejects chosen-scalar forgery ell=%-6d", ell)
 	}
-	t.Log("FIX subgroup binding rejects the forged [s]P+T and keeps honest valid")
 }
 
-// ---- the subgroup-binding fix (ell=3 clearing, demonstrated on G1) ----
+// ---- the subgroup-binding fix ----
+
+// c' clears the reachable G1 cofactor torsion: 3 * 11^2 * 10177^2.
+var cBLSG1 = cofactorClearing(map[int64]int{3: 1, 11: 2, 10177: 2})
 
 func assertInSubgroupBLSG1(api frontend.API, cr *sw_emulated.Curve[emparams.BLS12381Fp, emparams.BLS12381Fr], R *sw_emulated.AffinePoint[emparams.BLS12381Fp]) {
-	// hint S = [3^{-1} mod r] R (twice, as two equal-but-distinct copies so the
-	// [3]S doubling can use the complete addition without folding S.X - S.X),
-	// then enforce S on-curve and [3]S == R with sound arithmetic.
-	_, pre, _, err := emulated.NewVarGenericHint[emparams.BLS12381Fp, emparams.BLS12381Fr](
-		api, 0, 4, 0, nil,
-		[]*emulated.Element[emparams.BLS12381Fp]{&R.X, &R.Y}, nil, preimageHintBLSG1)
-	if err != nil {
-		panic(err)
-	}
-	S1 := &sw_emulated.AffinePoint[emparams.BLS12381Fp]{X: *pre[0], Y: *pre[1]}
-	S2 := &sw_emulated.AffinePoint[emparams.BLS12381Fp]{X: *pre[2], Y: *pre[3]}
-	cr.AssertIsEqual(S1, S2)
-	cr.AssertIsOnCurve(S1)
-	twoS := cr.AddUnified(S1, S2)
-	threeS := cr.AddUnified(twoS, S1)
-	cr.AssertIsEqual(threeS, R)
+	assertInSubgroupG1(api, cr, R, cBLSG1, preimageHintBLSG1)
 }
 
 func preimageHintBLSG1(field *big.Int, inputs, outputs []*big.Int) error {
 	return emulated.UnwrapHintContext(field, inputs, outputs, func(hc emulated.HintContext) error {
 		base := hc.EmulatedModuli()[0]
-		baseInputs, baseOutputs := hc.InputsOutputs(base)
+		baseIn, baseOut := hc.InputsOutputs(base)
 		var R bls.G1Affine
-		R.X.SetBigInt(baseInputs[0])
-		R.Y.SetBigInt(baseInputs[1])
-		einv := new(big.Int).ModInverse(big.NewInt(3), blsfr.Modulus())
+		R.X.SetBigInt(baseIn[0])
+		R.Y.SetBigInt(baseIn[1])
+		cinv := new(big.Int).ModInverse(cBLSG1, blsfr.Modulus())
 		var S bls.G1Affine
-		S.ScalarMultiplication(&R, einv)
-		S.X.BigInt(baseOutputs[0])
-		S.Y.BigInt(baseOutputs[1])
-		S.X.BigInt(baseOutputs[2])
-		S.Y.BigInt(baseOutputs[3])
+		S.ScalarMultiplication(&R, cinv)
+		S.X.BigInt(baseOut[0])
+		S.Y.BigInt(baseOut[1])
 		return nil
 	})
 }

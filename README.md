@@ -57,12 +57,24 @@ Every listed case is a runnable test that shows the unpatched gadget **accepting
 - **BN254 𝔾₁ is prime-order (cofactor 1) and therefore immune** — there is no
   cofactor torsion to shift by, so it has no test.
 
-## The fix (BLS12-381 𝔾₁)
+## The fix (all groups)
 
-`assertInSubgroup(R)`: hint a preimage `S = [ℓ⁻¹ mod r]·R`, assert `S` on-curve,
-and enforce `[ℓ]·S == R` in-circuit. A torsion-shifted `R` has no `[ℓ]`-preimage
-of the honest output, so the equality is unsatisfiable and the forgery is
-rejected; the honest witness still solves.
+`assertInSubgroup(R)`: provide a preimage `S = [c'⁻¹ mod r]·R`, assert `S`
+on-curve, and enforce `[c']·S == R`, where `c'` is the per-group
+cofactor-clearing constant (the product of the reachable prime powers, e.g.
+`3·11²·10177²` for BLS12-381 𝔾₁, `2²·127` for BW6-761 𝔾₁, `13²·23²·2713·11953`
+for BLS12-381 𝔾₂). A torsion-shifted `R = [s]P + T` is not in `[c']·E(𝔽ₚ)` (whose
+`c'`-part is trivial), so no on-curve `S` satisfies the equality and every forgery
+is rejected; the honest witness still solves. Each `TestXxxFix` runs the honest
+case plus every chosen-scalar forgery for its group.
+
+`ScalarMul` is itself the hinted (attackable) gadget and there is no public
+`Double`, so `[c']·S` is built from the public complete addition `AddUnified` by
+binary double-and-add, doubling `P` via a distinct copy (a fresh hint for 𝔾₁ /
+BW6-761 𝔾₂, or `Select(1, P, ·)` for the tower-field 𝔾₂) so `P.x − P.x` never
+folds to a constant. On-curve uses `AssertIsOnCurve` (𝔾₁), a 𝔾₂-parameter
+`sw_emulated` curve (BW6-761 𝔾₂, which lives over 𝔽ₚ), `AssertIsOnTwist`
+(BLS12-381 𝔾₂), or a manual `y²=x³+b'` in 𝔽ₚ² (BN254 𝔾₂, which exposes none).
 
 ## Running
 
@@ -86,6 +98,9 @@ go test ./... -v
 
 - `common.go` — chosen/any-scalar decompositions and the two generic hint
   overrides (shared by every group).
+- `fix.go` — the subgroup-binding fix: cofactor-clearing constant, sound
+  constant multiplication, and the 𝔾₁ `assertInSubgroup` (the 𝔾₂ variants live in
+  each group's file).
 - `torsion.go` — full-group orders and rational `ℓ`-torsion point generation for
   every group (plain double-and-add, since gnark-crypto's `ScalarMultiplication`
   reduces mod `r`).
